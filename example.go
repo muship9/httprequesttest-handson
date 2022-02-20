@@ -7,38 +7,64 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 )
 
 type Api struct {
+	// Auth token
 	token string
-	httpClient *http.Client
+
+	// http client
+	httpclient *http.Client
+
+	// endpoint Base URL
+	endpointBaseURL *url.URL
 }
 
-func New(token string, opts ...Option) *Api  {
+// New builds a API client from the provided token and options.
+func New(token string, opts ...Option) *Api {
 	api := &Api{
 		token:      token,
-		httpClient: http.DefaultClient,
+		httpclient: http.DefaultClient,
+		endpointBaseURL: &url.URL{
+			Scheme: "http",
+			Host:   "example.com",
+			Path:   "/",
+		},
 	}
+
 	for _, opt := range opts {
 		opt(api)
 	}
+
 	return api
 }
 
+// Option is customize Api properties function
 type Option func(*Api)
 
+// OptionHTTPClient - provide a custom http client to the client
 func OptionHTTPClient(c *http.Client) Option {
 	return func(api *Api) {
-		api.httpClient = c
+		api.httpclient = c
 	}
 }
 
-type ResponseBody struct {
-	Text string `json:text`
+// EndpointURLOption .
+func EndpointBaseURLOption(endpointURL *url.URL) Option {
+	return func(api *Api) {
+		api.endpointBaseURL = endpointURL
+	}
 }
 
-func (api *Api) Get(ctx context.Context) (*ResponseBody, error){
-	req, err := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+// ResponseBody of example resource
+type ResponseBody struct {
+	Text string `json:"text"`
+}
+
+// Get example resource
+func (api *Api) Get(ctx context.Context) (*ResponseBody, error) {
+	req, err := http.NewRequest(http.MethodGet, api.endpointBaseURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +90,11 @@ func (api *Api) Get(ctx context.Context) (*ResponseBody, error){
 	if err := json.Unmarshal(b, &body); err != nil {
 		return nil, err
 	}
+
 	return &body, nil
 }
 
+// request .
 func (api *Api) request(ctx context.Context, req *http.Request) (*http.Response, error) {
 	req = req.WithContext(ctx)
 
@@ -74,19 +102,22 @@ func (api *Api) request(ctx context.Context, req *http.Request) (*http.Response,
 	errCh := make(chan error)
 
 	go func() {
-		resp, err := api.httpClient.Do(req)
+		resp, err := api.httpclient.Do(req)
 		if err != nil {
 			errCh <- err
 			return
 		}
+
 		respCh <- resp
 	}()
 
 	select {
 	case resp := <-respCh:
 		return resp, nil
+
 	case err := <-errCh:
 		return nil, err
+
 	case <-ctx.Done():
 		return nil, errors.New("HTTP request cancelled")
 	}
